@@ -1,0 +1,8 @@
+python-dotenv
+langchain[llms]
+openai
+sentence-transformers
+faiss-gpu
+yt-dlp
+pydub
+librosa

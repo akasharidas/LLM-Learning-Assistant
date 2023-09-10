@@ -1,0 +1,7 @@
+cache/*
+downloads/*
+__pycache__
+*.gguf
+*.ipynb
+*.env
+log.txt

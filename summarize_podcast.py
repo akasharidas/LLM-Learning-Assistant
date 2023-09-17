@@ -8,12 +8,20 @@ from dotenv import load_dotenv
 from langchain.document_loaders.generic import GenericLoader
 from langchain.document_loaders.parsers.audio import OpenAIWhisperParser, OpenAIWhisperParserLocal
 from langchain.document_loaders.blob_loaders.youtube_audio import YoutubeAudioLoader
-from langchain.llms import LlamaCpp, OpenAI
+from langchain.document_loaders.youtube import _parse_video_id
+from langchain.docstore.document import Document
+from langchain.llms import LlamaCpp
+from langchain.chat_models import ChatOpenAI
 from langchain.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings, SentenceTransformerEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 from langchain.chains.summarize import load_summarize_chain
+from youtube_transcript_api import (
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    YouTubeTranscriptApi,
+)
 
 
 def cache_path(url):
@@ -23,6 +31,27 @@ def cache_path(url):
 def colored_print(text, color_code):
     """Print text using the provided ANSI color code."""
     print(f"{color_code}{text}\033[0m")
+
+def get_transcript_directly(url):
+    video_id = _parse_video_id(url)
+    if video_id is None:
+        return []
+
+    try:
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+    except TranscriptsDisabled:
+        return []
+
+    try:
+        transcript = transcript_list.find_manually_created_transcript(["en"])
+    except NoTranscriptFound:
+        return []
+    
+    transcript_pieces = transcript.fetch()
+
+    transcript = " ".join([t["text"].strip(" ").replace("\n", " ") for t in transcript_pieces])
+
+    return [Document(page_content=transcript)]
 
 def load_and_transcribe_audio(urls, save_dir, whisper_model):
     url = urls[0]
@@ -35,13 +64,17 @@ def load_and_transcribe_audio(urls, save_dir, whisper_model):
             return pickle.load(file)
     
     # If not, load and transcribe, then cache
-    if whisper_model == "cloud":
-        loader = GenericLoader(YoutubeAudioLoader(urls, save_dir), OpenAIWhisperParser())
-    else:
-        loader = GenericLoader(YoutubeAudioLoader(urls, save_dir), OpenAIWhisperParserLocal(lang_model=f"openai/whisper-{whisper_model}"))
-    docs = loader.load()
+    docs = get_transcript_directly(url)
+    if len(docs)==0:
+        print("Could not get transcript from API. Using Whisper to transcribe audio...")
+        if whisper_model == "cloud":
+            loader = GenericLoader(YoutubeAudioLoader(urls, save_dir), OpenAIWhisperParser())
+        else:
+            loader = GenericLoader(YoutubeAudioLoader(urls, save_dir), OpenAIWhisperParserLocal(lang_model=f"openai/whisper-{whisper_model}"))
+        docs = loader.load()
 
     # Cache the result
+    os.makedirs("./cache", exist_ok=True)
     with open(cached_file, 'wb') as file:
         pickle.dump(docs, file)
 
@@ -50,7 +83,7 @@ def load_and_transcribe_audio(urls, save_dir, whisper_model):
 
 def load_language_model(model_choice):
     if model_choice == "openai":
-        return OpenAI()
+        return ChatOpenAI(model="gpt-3.5-turbo")
     else:
         return LlamaCpp(
             model_path="./llama-2-13b-chat.Q4_0.gguf",

@@ -2,7 +2,8 @@ python-dotenv
 langchain[llms]
 openai
 sentence-transformers
-faiss-gpu
+faiss-cpu
 yt-dlp
 pydub
 librosa
+youtube-transcript-api

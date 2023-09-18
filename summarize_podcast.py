@@ -1,30 +1,25 @@
 import argparse
-import pickle
-import os
-import torch
-import hashlib
 import glob
+import hashlib
+import os
+import pickle
+
 from dotenv import load_dotenv
+from langchain.chains import MapReduceDocumentsChain, ReduceDocumentsChain, RetrievalQA
+from langchain.chains.combine_documents.stuff import StuffDocumentsChain
+from langchain.chains.llm import LLMChain
+from langchain.chat_models import ChatOpenAI
+from langchain.docstore.document import Document
+from langchain.document_loaders.blob_loaders.youtube_audio import YoutubeAudioLoader
 from langchain.document_loaders.generic import GenericLoader
 from langchain.document_loaders.parsers.audio import OpenAIWhisperParser, OpenAIWhisperParserLocal
-from langchain.document_loaders.blob_loaders.youtube_audio import YoutubeAudioLoader
 from langchain.document_loaders.youtube import _parse_video_id
-from langchain.docstore.document import Document
+from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.llms import LlamaCpp
-from langchain.chat_models import ChatOpenAI
-from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings, SentenceTransformerEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import RetrievalQA
-from youtube_transcript_api import (
-    NoTranscriptFound,
-    TranscriptsDisabled,
-    YouTubeTranscriptApi,
-)
-from langchain.chains.llm import LLMChain
 from langchain.prompts import PromptTemplate
-from langchain.chains.combine_documents.stuff import StuffDocumentsChain
-from langchain.chains import ReduceDocumentsChain, MapReduceDocumentsChain
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import FAISS
+from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled, YouTubeTranscriptApi
 
 ctx_lengths = {
     "gpt-3.5-turbo": 4000,
@@ -38,7 +33,7 @@ def cache_path(url):
     """Return a suitable cache path for the given URL."""
     return os.path.join("./cache", hashlib.md5(url.encode()).hexdigest() + ".pkl")
 
-def colored_print(text, color_code):
+def colored_print(text, color_code="\033[94m"):
     """Print text using the provided ANSI color code."""
     print(f"{color_code}{text}\033[0m")
 
@@ -217,16 +212,16 @@ def main():
     for f in glob.glob(save_dir + "/*"):
         os.remove(f)
 
-    colored_print("\n\nLoading and transcribing audio...", "\033[94m")
+    colored_print("\n\nLoading and transcribing audio...")
     docs = load_and_transcribe_audio([args.url], save_dir, args.whisper_model)
 
-    colored_print("\n\nLoading language model...", "\033[94m")
+    colored_print("\n\nLoading language model...")
     llm = load_language_model(args.language_model)
 
-    colored_print("\n\nEmbedding and indexing text...", "\033[94m")
+    colored_print("\n\nEmbedding and indexing text...")
     vectordb = embed_and_index_text(docs)
 
-    colored_print("\n\nRunning summarization chain...", "\033[94m")
+    colored_print("\n\nRunning summarization chain...")
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
         chunk_size=args.ctx_length, chunk_overlap=0
     )
@@ -241,21 +236,21 @@ def main():
     summary = f"SUMMARY: {summary}"
     colored_print("\n\n" + summary, "\033[92m")  # print summary in green
 
-    colored_print("\n\nSetting up the QA chain...", "\033[94m")
+    colored_print("\n\nSetting up the QA chain...")
     qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
         retriever=vectordb.as_retriever(),
     )
-    colored_print("Initialization complete. You can now ask questions!\n", "\033[94m")
+    colored_print("Initialization complete. You can now ask questions!\n")
 
     while True:
         query = input("Enter your question (type 'quit' to exit):\n> ")
         if query.lower() == "quit":
-            colored_print("\nExiting. Goodbye!\n", "\033[94m")
+            colored_print("\nExiting. Goodbye!\n")
             break
         else:
-            colored_print("\nFetching your answer...\n", "\033[94m")
+            colored_print("\nFetching your answer...\n")
             response = qa_chain.run(query)
             colored_print(f"Answer: {response}\n", "\033[92m")  # print answer in green
 

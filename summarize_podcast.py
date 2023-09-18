@@ -16,12 +16,15 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings, SentenceTransformerEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
-from langchain.chains.summarize import load_summarize_chain
 from youtube_transcript_api import (
     NoTranscriptFound,
     TranscriptsDisabled,
     YouTubeTranscriptApi,
 )
+from langchain.chains.llm import LLMChain
+from langchain.prompts import PromptTemplate
+from langchain.chains.combine_documents.stuff import StuffDocumentsChain
+from langchain.chains import ReduceDocumentsChain, MapReduceDocumentsChain
 
 
 def cache_path(url):
@@ -106,6 +109,80 @@ def embed_and_index_text(docs):
     return vectordb
 
 
+def load_summarize_chain_stuff(llm):
+    prompt_template = """
+    Take a deep breath and work on this step-by-step. 
+    You are a helpful academic assistant. You will be given a long document. 
+    Write a detailed summary of it such that someone reading the summary can understand all the main points and takeaways of the full document.
+
+    The summary must include the following elements:
+        * A title that accurately reflects the content of the text.
+        * An introduction paragraph that provides an overview of the topic.
+        * Bullet points that list the key points of the text.
+        * A conclusion paragraph that summarizes the main points of the text.
+
+    DOCUMENT: "{text}"
+
+    SUMMARY:"""
+    prompt = PromptTemplate.from_template(prompt_template)
+
+    llm_chain = LLMChain(llm=llm, prompt=prompt)
+
+    stuff_chain = StuffDocumentsChain(
+        llm_chain=llm_chain, document_variable_name="text", verbose=True
+    )
+
+    return stuff_chain
+
+
+def load_summarize_chain_mapreduce(llm):
+    # Map
+    map_template = """
+    Take a deep breath and work on this step-by-step. 
+    You are a helpful academic assistant. You will be given a document. 
+    Write a detailed summary of it such that someone reading the summary can understand all the main points and takeaways of the full document.
+    
+    DOCUMENT: "{docs}"
+
+    SUMMARY:"""
+    map_prompt = PromptTemplate.from_template(map_template)
+    map_chain = LLMChain(llm=llm, prompt=map_prompt)
+
+    # Reduce
+    reduce_template='''
+    Generate a summary of the following text that includes the following elements:
+
+    * A title that accurately reflects the content of the text.
+    * An introduction paragraph that provides an overview of the topic.
+    * Bullet points that list the key points of the text.
+    * A conclusion paragraph that summarizes the main points of the text.
+
+    Text:`{doc_summaries}`
+    '''
+    reduce_prompt = PromptTemplate.from_template(reduce_template)
+    reduce_chain = LLMChain(llm=llm, prompt=reduce_prompt)
+
+    combine_documents_chain = StuffDocumentsChain(
+        llm_chain=reduce_chain, document_variable_name="doc_summaries"
+    )
+
+    reduce_documents_chain = ReduceDocumentsChain(
+        combine_documents_chain=combine_documents_chain,
+        collapse_documents_chain=combine_documents_chain,
+        token_max=4000,
+    )
+
+    map_reduce_chain = MapReduceDocumentsChain(
+        llm_chain=map_chain,
+        reduce_documents_chain=reduce_documents_chain,
+        document_variable_name="docs",
+        return_intermediate_steps=False,
+        verbose=True
+    )
+
+    return map_reduce_chain
+
+
 def main():
     print("\n--- Podcast Summary and Q&A ---")
 
@@ -141,7 +218,16 @@ def main():
     vectordb = embed_and_index_text(docs)
 
     colored_print("\n\nRunning summarization chain...", "\033[94m")
-    summarize_chain = load_summarize_chain(llm, chain_type="stuff")
+    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+        chunk_size=4000, chunk_overlap=0
+    )
+    docs = text_splitter.transform_documents(docs)
+
+    if len(docs)>1:
+        summarize_chain = load_summarize_chain_mapreduce(llm)
+    else:
+        summarize_chain = load_summarize_chain_stuff(llm)
+
     summary = summarize_chain.run(docs)
     summary = f"SUMMARY: {summary}"
     colored_print("\n\n" + summary, "\033[92m")  # print summary in green

@@ -26,6 +26,13 @@ from langchain.prompts import PromptTemplate
 from langchain.chains.combine_documents.stuff import StuffDocumentsChain
 from langchain.chains import ReduceDocumentsChain, MapReduceDocumentsChain
 
+ctx_lengths = {
+    "gpt-3.5-turbo": 4000,
+    "gpt-3.5-turbo-16k": 16000,
+    "gpt-4": 8000,
+    "gpt-4-32k": 32000,
+    "llama2": 4000
+}
 
 def cache_path(url):
     """Return a suitable cache path for the given URL."""
@@ -85,8 +92,8 @@ def load_and_transcribe_audio(urls, save_dir, whisper_model):
 
 
 def load_language_model(model_choice):
-    if model_choice == "openai":
-        return ChatOpenAI(model="gpt-3.5-turbo")
+    if model_choice.startswith("gpt"):
+        return ChatOpenAI(model=model_choice)
     else:
         return LlamaCpp(
             model_path="./llama-2-13b-chat.Q4_0.gguf",
@@ -118,7 +125,7 @@ def load_summarize_chain_stuff(llm):
     The summary must include the following elements:
         * A title that accurately reflects the content of the text.
         * An introduction paragraph that provides an overview of the topic.
-        * Bullet points that list the key points of the text.
+        * A detailed summary of the main points and takeaways of the the text, in bullet points.
         * A conclusion paragraph that summarizes the main points of the text.
 
     DOCUMENT: "{text}"
@@ -135,7 +142,7 @@ def load_summarize_chain_stuff(llm):
     return stuff_chain
 
 
-def load_summarize_chain_mapreduce(llm):
+def load_summarize_chain_mapreduce(llm, token_max):
     # Map
     map_template = """
     Take a deep breath and work on this step-by-step. 
@@ -154,7 +161,7 @@ def load_summarize_chain_mapreduce(llm):
 
     * A title that accurately reflects the content of the text.
     * An introduction paragraph that provides an overview of the topic.
-    * Bullet points that list the key points of the text.
+    * A detailed summary of the main points and takeaways of the the text, in bullet points.
     * A conclusion paragraph that summarizes the main points of the text.
 
     Text:`{doc_summaries}`
@@ -169,7 +176,7 @@ def load_summarize_chain_mapreduce(llm):
     reduce_documents_chain = ReduceDocumentsChain(
         combine_documents_chain=combine_documents_chain,
         collapse_documents_chain=combine_documents_chain,
-        token_max=4000,
+        token_max=token_max,
     )
 
     map_reduce_chain = MapReduceDocumentsChain(
@@ -189,9 +196,11 @@ def main():
     parser = argparse.ArgumentParser(description="Podcast Summary and Q&A")
     parser.add_argument("--url", help="YouTube video URL")
     parser.add_argument("--whisper_model", default="cloud", choices=["cloud", "small", "medium", "large"], help="Variant of the Whisper model to use")
-    parser.add_argument("--language_model", default="openai", choices=["openai", "llama2"], help="Language model to use")
+    parser.add_argument("--language_model", default="gpt-3.5-turbo", choices=["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4", "gpt-4-32k", "llama2"], help="Language model to use")
 
     args = parser.parse_args()
+    
+    args.ctx_length = ctx_lengths[args.language_model]
 
     # Print the command-line arguments
     print("\n--- Arguments ---")
@@ -200,7 +209,7 @@ def main():
     print("\n--------------------------------------\n")
 
 
-    if args.whisper_model=="cloud" or args.language_model=="openai":
+    if args.whisper_model=="cloud" or args.language_model.startswith("gpt"):
         load_dotenv()
 
     # Directory to save audio files
@@ -219,12 +228,12 @@ def main():
 
     colored_print("\n\nRunning summarization chain...", "\033[94m")
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=4000, chunk_overlap=0
+        chunk_size=args.ctx_length, chunk_overlap=0
     )
     docs = text_splitter.transform_documents(docs)
 
     if len(docs)>1:
-        summarize_chain = load_summarize_chain_mapreduce(llm)
+        summarize_chain = load_summarize_chain_mapreduce(llm, args.ctx_length)
     else:
         summarize_chain = load_summarize_chain_stuff(llm)
 

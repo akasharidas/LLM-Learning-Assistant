@@ -104,7 +104,7 @@ def load_language_model(model_choice):
 def embed_and_index_text(docs):
     combined_docs = [doc.page_content for doc in docs]
     text = " ".join(combined_docs)
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=0)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     splits = text_splitter.split_text(text)
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     vectordb = FAISS.from_texts(splits, embeddings)
@@ -186,9 +186,9 @@ def load_summarize_chain_mapreduce(llm, token_max):
 
 
 def main():
-    print("\n--- Podcast Summary and Q&A ---")
+    print("\n--- Long-Form Content Summary and Q&A ---")
 
-    parser = argparse.ArgumentParser(description="Podcast Summary and Q&A")
+    parser = argparse.ArgumentParser(description="Long-Form Content Summary and Q&A")
     parser.add_argument("--url", help="YouTube video URL")
     parser.add_argument("--whisper_model", default="cloud", choices=["cloud", "small", "medium", "large"], help="Variant of the Whisper model to use")
     parser.add_argument("--language_model", default="gpt-3.5-turbo", choices=["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4", "gpt-4-32k", "llama2"], help="Language model to use")

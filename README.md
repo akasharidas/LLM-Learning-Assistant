@@ -1,4 +1,4 @@
-# Long-Form Content Summarization and Q&A using LLMs and Retrieval-Augmented Generation
+# LLM Learning Assistant: Long-Form Content Summarization and Q&A using LLMs and Retrieval-Augmented Generation
 
 Have a 2-hour long [Huberman Lab](https://www.youtube.com/@hubermanlab) episode queued up but wish you could get a summary and ask follow-up questions instead? This project is for you!
 
